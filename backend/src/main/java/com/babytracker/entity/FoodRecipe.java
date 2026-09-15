@@ -1,11 +1,14 @@
 package com.babytracker.entity;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 @Data
 @TableName("food_recipe")
 public class FoodRecipe {
+    @TableId(type = IdType.AUTO)
     private Long id;
     private Integer monthAgeMin;
     private Integer monthAgeMax;

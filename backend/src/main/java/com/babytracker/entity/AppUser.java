@@ -4,17 +4,13 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
-@TableName("baby")
-public class Baby {
+@TableName("app_user")
+public class AppUser {
     @TableId(type = IdType.AUTO)
     private Long id;
-    private String name;
-    private LocalDate birthday;
-    private String bloodType;
-    private Double initialHeight;
-    private Double initialWeight;
-    private Long createdBy;
+    private String nickname;
+    private LocalDateTime createdAt;
 }
