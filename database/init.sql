@@ -1,10 +1,12 @@
 CREATE TABLE IF NOT EXISTS app_user (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   nickname VARCHAR(80) NOT NULL,
+  password_hash VARCHAR(128),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_user_nickname (nickname)
 );
 
+-- created_by 允许为 NULL：升级前创建的旧宝宝没有创建者归属，等待认领
 CREATE TABLE IF NOT EXISTS baby (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(80) NOT NULL,
@@ -12,7 +14,7 @@ CREATE TABLE IF NOT EXISTS baby (
   blood_type VARCHAR(10),
   initial_height DECIMAL(5,2),
   initial_weight DECIMAL(5,2),
-  created_by BIGINT NOT NULL
+  created_by BIGINT
 );
 
 -- 家庭成员：角色 OWNER(创建者) / MANAGE(管理) / RECORD(记录) / VIEW(查看)

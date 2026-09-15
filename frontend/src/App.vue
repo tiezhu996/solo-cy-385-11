@@ -5,11 +5,16 @@
     <section class="card">
       <h2>家庭协作</h2>
       <div v-if="!user">
-        <van-field v-model="nickname" placeholder="输入昵称" />
+        <van-field v-model="nickname" placeholder="昵称" />
+        <van-field v-model="password" type="password" placeholder="密码（至少 6 位）" />
         <div class="row">
           <van-button size="small" type="primary" @click="onRegister">注册并登录</van-button>
           <van-button size="small" @click="onLogin">登录</van-button>
+          <van-button v-if="needsSetPassword" size="small" type="warning" @click="onSetPassword">
+            设置初始密码
+          </van-button>
         </div>
+        <p v-if="needsSetPassword" class="hint">该账号为旧账号，尚未设置密码，设置后即可登录。</p>
       </div>
       <template v-else>
         <div class="row">
@@ -31,6 +36,20 @@
           <van-field v-model="newBabyBirthday" placeholder="出生日期 如 2025-11-01" />
           <van-button size="small" type="primary" @click="onCreateBaby">创建档案</van-button>
         </div>
+
+        <template v-if="adoptable.length">
+          <h3>待认领的旧档案</h3>
+          <van-cell
+            v-for="b in adoptable"
+            :key="b.id"
+            :title="b.name"
+            :label="`出生于 ${b.birthday} · 升级前创建，暂无创建者`"
+          >
+            <template #value>
+              <van-button size="mini" type="primary" @click="onAdopt(b)">认领为我的宝宝</van-button>
+            </template>
+          </van-cell>
+        </template>
 
         <template v-if="currentBaby">
           <h3>成员与权限</h3>
@@ -107,8 +126,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import * as echarts from 'echarts';
-import { api, clearToken, setToken } from './api';
-import type { BabyView, Invite, Member, User } from './api';
+import { api, ApiError, clearToken, setToken } from './api';
+import type { Baby, BabyView, Invite, Member, User } from './api';
 
 const growthChart = ref<HTMLElement>();
 const vaccines = [{ name: '麻腮风疫苗', date: '2026-06-18', done: false }, { name: '乙肝疫苗', date: '2026-04-10', done: true }];
@@ -117,7 +136,10 @@ const foods = ['南瓜米糊', '鳕鱼土豆泥', '苹果燕麦粥'];
 // ---------- 家庭协作 ----------
 const user = ref<User | null>(null);
 const nickname = ref('');
+const password = ref('');
+const needsSetPassword = ref(false);
 const babies = ref<BabyView[]>([]);
+const adoptable = ref<Baby[]>([]);
 const currentBabyId = ref<number>(0);
 const newBabyName = ref('');
 const newBabyBirthday = ref('');
@@ -143,6 +165,7 @@ async function run(action: () => Promise<void>) {
   try {
     await action();
   } catch (e) {
+    if (e instanceof ApiError && e.code === 'PASSWORD_NOT_SET') needsSetPassword.value = true;
     familyError.value = e instanceof Error ? e.message : '操作失败';
   }
 }
@@ -150,18 +173,27 @@ async function run(action: () => Promise<void>) {
 function saveAuth(payload: { token: string; user: User }) {
   setToken(payload.token);
   user.value = payload.user;
+  needsSetPassword.value = false;
+  password.value = '';
 }
 
 async function onRegister() {
   await run(async () => {
-    saveAuth(await api.register(nickname.value.trim()));
+    saveAuth(await api.register(nickname.value.trim(), password.value));
     await loadBabies();
   });
 }
 
 async function onLogin() {
   await run(async () => {
-    saveAuth(await api.login(nickname.value.trim()));
+    saveAuth(await api.login(nickname.value.trim(), password.value));
+    await loadBabies();
+  });
+}
+
+async function onSetPassword() {
+  await run(async () => {
+    saveAuth(await api.setInitialPassword(nickname.value.trim(), password.value));
     await loadBabies();
   });
 }
@@ -170,6 +202,7 @@ function onLogout() {
   clearToken();
   user.value = null;
   babies.value = [];
+  adoptable.value = [];
   members.value = [];
   invites.value = [];
   currentBabyId.value = 0;
@@ -178,6 +211,7 @@ function onLogout() {
 async function loadBabies() {
   await run(async () => {
     babies.value = await api.myBabies();
+    adoptable.value = await api.adoptableBabies();
     if (!babies.value.some(b => b.id === currentBabyId.value)) {
       currentBabyId.value = babies.value[0]?.id ?? 0;
     }
@@ -191,6 +225,11 @@ async function onCreateBaby() {
     newBabyName.value = '';
     newBabyBirthday.value = '';
   });
+  await loadBabies();
+}
+
+async function onAdopt(b: Baby) {
+  await run(async () => { await api.adoptBaby(b.id); });
   await loadBabies();
 }
 

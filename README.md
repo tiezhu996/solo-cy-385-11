@@ -34,18 +34,37 @@ docker compose up -d --build
 
 - 创建者可为某个宝宝生成**一次性邀请码**（可设有效期，默认 72 小时），并指定领取后获得的角色（VIEW / RECORD / MANAGE）。
 - 邀请码被**领取、撤销或过期**后不可再次使用；并发领取时数据库原子更新保证只有一个确定结果。
-- 角色调整与移除成员**立即生效**：所有数据接口每次请求实时校验成员表，被移除成员立刻无法读取或写入。
+- 角色调整与移除成员**立即生效**：所有数据接口每次请求实时校验成员表，被移除成员立刻无法读取或写入，重新登录也不能恢复权限。
 - **创建者不能退出家庭、不能被移除或改角色；家庭中最后一名管理者不能被移除或降级。**
 - 成员变更（改角色 / 移除 / 退出）通过对宝宝行加排他锁串行化，并发操作只保留一个确定结果；成员与权限列表可随时回读。
+
+### 账号与登录
+
+- 注册与登录均需**昵称 + 密码**（密码以 PBKDF2 散列存储，接口不返回散列）；昵称或密码错误统一返回 401。
+- 升级前注册的旧账号没有密码：登录会提示 `PASSWORD_NOT_SET`，需先调用 `POST /api/users/set-password` 设置初始密码（仅对无密码账号生效一次），之后凭密码登录。
+
+### 旧数据迁移（已有宝宝数据升级）
+
+- 已有部署升级时执行一次 `database/migration.sql`（可重复执行）：
+  `docker compose exec -T db mysql -ubabytracker -pbabytracker_pass babytracker < database/migration.sql`
+- 升级前创建的旧宝宝 `created_by` 为 NULL、没有家庭成员，视为**待认领**：
+  - 任何登录用户都可只读打开旧档案及其生长/疫苗记录（`GET /api/babies/adoptable` 查看待认领列表）；
+  - 认领前不能写入数据、不能生成邀请码；
+  - `POST /api/babies/{babyId}/adopt` 认领后成为创建者（OWNER），并发认领只有一个确定结果；
+  - 认领后旧宝宝恢复常规权限管控，可正常邀请成员、建立家庭协作。
 
 ### 协作相关接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | /api/users/register · /api/users/login | 注册 / 登录，返回 JWT |
+| POST | /api/users/register · /api/users/login | 注册 / 登录（昵称+密码），返回 JWT |
+| POST | /api/users/set-password | 旧账号设置初始密码（仅无密码账号生效一次） |
+| POST | /api/users/password | 修改密码（需登录并校验原密码） |
 | POST | /api/babies | 创建宝宝档案（创建者自动成为 OWNER） |
 | GET | /api/babies | 我加入的宝宝列表（含我的角色） |
-| GET · PUT | /api/babies/{babyId} | 查看档案（成员）· 修改档案（管理） |
+| GET | /api/babies/adoptable | 待认领的旧宝宝列表 |
+| POST | /api/babies/{babyId}/adopt | 认领旧宝宝，成为创建者 |
+| GET · PUT | /api/babies/{babyId} | 查看档案（成员；旧宝宝登录即可只读）· 修改档案（管理） |
 | POST | /api/babies/{babyId}/invites | 生成一次性邀请码（管理） |
 | GET | /api/babies/{babyId}/invites | 邀请码列表回读（管理） |
 | POST | /api/babies/{babyId}/invites/{id}/revoke | 撤销邀请码（管理） |
@@ -58,7 +77,7 @@ docker compose up -d --build
 | GET · POST | /api/babies/{babyId}/vaccines | 疫苗计划（查看 / 记录） |
 | GET | /api/babies/{babyId}/foods/recommend | 辅食推荐（查看） |
 
-除注册与登录外，所有接口都需要请求头 `Authorization: Bearer <token>`。
+除注册、登录与设置初始密码外，所有接口都需要请求头 `Authorization: Bearer <token>`。
 
 ## 本地开发方式
 
@@ -100,7 +119,8 @@ npm run dev
 │       │   └── utils         # JWT、登录上下文
 │       └── resources
 ├── database
-│   └── init.sql              # 含 app_user / baby_member / baby_invite 表
+│   ├── init.sql              # 含 app_user / baby_member / baby_invite 表
+│   └── migration.sql         # 已有数据部署的升级脚本（可重复执行）
 ├── frontend
 │   └── src                   # api.ts 封装协作接口，App.vue 含家庭协作面板
 └── docker-compose.yml

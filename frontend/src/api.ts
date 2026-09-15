@@ -7,11 +7,23 @@ export interface BabyView {
   id: number; name: string; birthday: string; bloodType?: string;
   initialHeight?: number; initialWeight?: number; createdBy: number; role: string;
 }
+export interface Baby {
+  id: number; name: string; birthday: string; bloodType?: string;
+  initialHeight?: number; initialWeight?: number; createdBy: number | null;
+}
 export interface Member {
   id: number; babyId: number; userId: number; role: string; nickname?: string;
 }
 export interface Invite {
   id: number; babyId: number; code: string; role: string; status: string; expiresAt: string;
+}
+
+export class ApiError extends Error {
+  code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.code = code;
+  }
 }
 
 let token = localStorage.getItem(TOKEN_KEY) ?? '';
@@ -31,7 +43,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(BASE + path, { ...options, headers });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) throw new Error((data.message as string) || `请求失败（${res.status}）`);
+  if (!res.ok) {
+    throw new ApiError((data.message as string) || `请求失败（${res.status}）`, (data.code as string) || '');
+  }
   return data as unknown as T;
 }
 
@@ -39,10 +53,16 @@ const post = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'POST', body: JSON.stringify(body) });
 
 export const api = {
-  register: (nickname: string) => post<AuthPayload>('/users/register', { nickname }),
-  login: (nickname: string) => post<AuthPayload>('/users/login', { nickname }),
+  register: (nickname: string, password: string) =>
+    post<AuthPayload>('/users/register', { nickname, password }),
+  login: (nickname: string, password: string) =>
+    post<AuthPayload>('/users/login', { nickname, password }),
+  setInitialPassword: (nickname: string, password: string) =>
+    post<AuthPayload>('/users/set-password', { nickname, password }),
   myBabies: () => request<BabyView[]>('/babies'),
   createBaby: (baby: { name: string; birthday: string }) => post<BabyView>('/babies', baby),
+  adoptableBabies: () => request<Baby[]>('/babies/adoptable'),
+  adoptBaby: (babyId: number) => post<Member>(`/babies/${babyId}/adopt`, {}),
   members: (babyId: number) => request<Member[]>(`/babies/${babyId}/members`),
   changeRole: (babyId: number, userId: number, role: string) =>
     request<Member>(`/babies/${babyId}/members/${userId}`, { method: 'PUT', body: JSON.stringify({ role }) }),

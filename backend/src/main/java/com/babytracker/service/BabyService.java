@@ -58,12 +58,17 @@ public class BabyService {
                 .collect(Collectors.toList());
     }
 
-    /** 查看档案：任何家庭成员可读。 */
+    /** 查看档案：任何家庭成员可读；待认领的旧宝宝对所有登录用户只读开放。 */
     public Baby getForMember(Long babyId, Long userId) {
         familyService.requireRole(babyId, userId, FamilyEnums.ROLE_VIEW);
         Baby baby = babyMapper.selectById(babyId);
         if (baby == null) throw new BizException(ErrorCode.NOT_FOUND, "宝宝档案不存在");
         return baby;
+    }
+
+    /** 没有创建者的旧宝宝列表（升级前的数据），等待认领。 */
+    public List<Baby> listAdoptable() {
+        return babyMapper.selectOwnerless();
     }
 
     /** 修改档案：仅管理者。 */

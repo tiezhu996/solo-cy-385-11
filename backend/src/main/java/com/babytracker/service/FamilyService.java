@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.babytracker.constants.ErrorCode;
 import com.babytracker.constants.FamilyEnums;
 import com.babytracker.entity.AppUser;
+import com.babytracker.entity.Baby;
 import com.babytracker.entity.BabyInvite;
 import com.babytracker.entity.BabyMember;
 import com.babytracker.exception.BizException;
@@ -62,9 +63,19 @@ public class FamilyService {
         return member;
     }
 
-    /** 校验当前用户角色达到 minRole（VIEW/RECORD/MANAGE）。 */
+    /**
+     * 校验当前用户角色达到 minRole（VIEW/RECORD/MANAGE）。
+     * 升级前创建、尚无创建者的旧宝宝（ownerless）对所有登录用户只读开放，
+     * 便于查看旧档案并认领；写入与管理操作仍需先认领成为成员。
+     */
     public BabyMember requireRole(Long babyId, Long userId, String minRole) {
-        BabyMember member = requireMember(babyId, userId);
+        BabyMember member = findMember(babyId, userId);
+        if (member == null) {
+            if (FamilyEnums.rank(minRole) <= FamilyEnums.rank(FamilyEnums.ROLE_VIEW) && isOwnerless(babyId)) {
+                return null;
+            }
+            throw new BizException(ErrorCode.FORBIDDEN, "不是该宝宝的家庭成员，无权访问");
+        }
         if (FamilyEnums.rank(member.getRole()) < FamilyEnums.rank(minRole)) {
             throw new BizException(ErrorCode.FORBIDDEN,
                     "当前角色权限不足，需要" + FamilyEnums.roleName(minRole) + "权限");
@@ -72,9 +83,50 @@ public class FamilyService {
         return member;
     }
 
+    /** 该宝宝是否没有任何 OWNER 成员（待认领的旧档案）。 */
+    public boolean isOwnerless(Long babyId) {
+        return memberMapper.selectCount(new QueryWrapper<BabyMember>()
+                .eq("baby_id", babyId).eq("role", FamilyEnums.ROLE_OWNER)) == 0;
+    }
+
     public BabyMember findMember(Long babyId, Long userId) {
         return memberMapper.selectOne(new QueryWrapper<BabyMember>()
                 .eq("baby_id", babyId).eq("user_id", userId));
+    }
+
+    // ---------- 旧档案认领 ----------
+
+    /**
+     * 认领没有创建者的旧宝宝：认领人成为 OWNER，created_by 一并补齐。
+     * 通过宝宝行锁串行化，并发认领只会有一个确定结果。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BabyMember adopt(Long babyId, Long userId) {
+        lockBaby(babyId);
+        if (findMember(babyId, userId) != null) {
+            throw new BizException(ErrorCode.ALREADY_MEMBER, "你已经是该宝宝的家庭成员");
+        }
+        if (!isOwnerless(babyId)) {
+            throw new BizException(ErrorCode.BABY_ALREADY_OWNED, "该宝宝已有创建者，请通过邀请码加入");
+        }
+        Baby baby = babyMapper.selectById(babyId);
+        if (baby.getCreatedBy() != null && !baby.getCreatedBy().equals(userId)) {
+            throw new BizException(ErrorCode.BABY_ALREADY_OWNED, "该宝宝已有创建者，请通过邀请码加入");
+        }
+        if (baby.getCreatedBy() == null) {
+            baby.setCreatedBy(userId);
+            babyMapper.updateById(baby);
+        }
+        BabyMember member = new BabyMember();
+        member.setBabyId(babyId);
+        member.setUserId(userId);
+        member.setRole(FamilyEnums.ROLE_OWNER);
+        try {
+            memberMapper.insert(member);
+        } catch (DuplicateKeyException e) {
+            throw new BizException(ErrorCode.ALREADY_MEMBER, "你已经是该宝宝的家庭成员");
+        }
+        return member;
     }
 
     // ---------- 邀请码 ----------
@@ -161,9 +213,9 @@ public class FamilyService {
 
     // ---------- 成员管理 ----------
 
-    /** 成员与权限列表回读，家庭成员可见。 */
+    /** 成员与权限列表回读，家庭成员可见；待认领的旧宝宝也可查看（便于确认状态）。 */
     public List<BabyMember> listMembers(Long babyId, Long operatorId) {
-        requireMember(babyId, operatorId);
+        requireRole(babyId, operatorId, FamilyEnums.ROLE_VIEW);
         List<BabyMember> members = memberMapper.selectList(new QueryWrapper<BabyMember>()
                 .eq("baby_id", babyId).orderByAsc("id"));
         Map<Long, AppUser> users = userMapper.selectBatchIds(

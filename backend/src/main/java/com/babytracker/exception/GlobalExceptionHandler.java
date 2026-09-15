@@ -41,7 +41,8 @@ public class GlobalExceptionHandler {
             case ErrorCode.NOT_FOUND -> HttpStatus.NOT_FOUND;
             case ErrorCode.ALREADY_MEMBER, ErrorCode.INVITE_INVALID, ErrorCode.INVITE_EXPIRED,
                  ErrorCode.INVITE_REVOKED, ErrorCode.INVITE_CLAIMED, ErrorCode.CREATOR_FORBIDDEN,
-                 ErrorCode.LAST_MANAGER_REQUIRED, ErrorCode.NICKNAME_TAKEN -> HttpStatus.CONFLICT;
+                 ErrorCode.LAST_MANAGER_REQUIRED, ErrorCode.NICKNAME_TAKEN, ErrorCode.PASSWORD_NOT_SET,
+                 ErrorCode.PASSWORD_ALREADY_SET, ErrorCode.BABY_ALREADY_OWNED -> HttpStatus.CONFLICT;
             default -> HttpStatus.BAD_REQUEST;
         };
     }
